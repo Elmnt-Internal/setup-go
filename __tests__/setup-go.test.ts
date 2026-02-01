@@ -129,6 +129,9 @@ describe('setup-go', () => {
   });
 
   afterEach(() => {
+    // clear out env var set during 'run'
+    delete process.env[im.GOTOOLCHAIN_ENV_VAR];
+
     //jest.resetAllMocks();
     jest.clearAllMocks();
     //jest.restoreAllMocks();
@@ -285,7 +288,7 @@ describe('setup-go', () => {
     expect(logSpy).toHaveBeenCalledWith(`Setup go version spec 1.13.0`);
   });
 
-  it('does not export any variables for Go versions >=1.9', async () => {
+  it('does not export GOROOT for Go versions >=1.9', async () => {
     inputs['go-version'] = '1.13.0';
     inSpy.mockImplementation(name => inputs[name]);
 
@@ -298,7 +301,7 @@ describe('setup-go', () => {
     });
 
     await main.run();
-    expect(vars).toStrictEqual({});
+    expect(vars).not.toHaveProperty('GOROOT');
   });
 
   it('exports GOROOT for Go versions <1.9', async () => {
@@ -314,9 +317,7 @@ describe('setup-go', () => {
     });
 
     await main.run();
-    expect(vars).toStrictEqual({
-      GOROOT: toolPath
-    });
+    expect(vars).toHaveProperty('GOROOT', toolPath);
   });
 
   it('finds a version of go already in the cache', async () => {
@@ -388,7 +389,7 @@ describe('setup-go', () => {
 
     const expPath = path.win32.join(toolPath, 'bin');
     expect(dlSpy).toHaveBeenCalledWith(
-      'https://storage.googleapis.com/golang/go1.13.1.windows-amd64.zip',
+      'https://go.dev/dl/go1.13.1.windows-amd64.zip',
       'C:\\temp\\go1.13.1.windows-amd64.zip',
       undefined
     );
@@ -867,6 +868,9 @@ use .
 
 `;
 
+    const toolVersionsContents = `golang 1.23
+`;
+
     it('reads version from go.mod', async () => {
       inputs['go-version-file'] = 'go.mod';
       existsSpy.mockImplementation(() => true);
@@ -889,6 +893,18 @@ use .
       expect(logSpy).toHaveBeenCalledWith('Setup go version spec 1.19');
       expect(logSpy).toHaveBeenCalledWith('Attempting to download 1.19...');
       expect(logSpy).toHaveBeenCalledWith('matching 1.19...');
+    });
+
+    it('reads version from .tool-versions', async () => {
+      inputs['go-version-file'] = '.tool-versions';
+      existsSpy.mockImplementation(() => true);
+      readFileSpy.mockImplementation(() => Buffer.from(toolVersionsContents));
+
+      await main.run();
+
+      expect(logSpy).toHaveBeenCalledWith('Setup go version spec 1.23');
+      expect(logSpy).toHaveBeenCalledWith('Attempting to download 1.23...');
+      expect(logSpy).toHaveBeenCalledWith('matching 1.23...');
     });
 
     it('reads version from .go-version', async () => {
@@ -945,7 +961,7 @@ use .
         const expectedUrl =
           platform === 'win32'
             ? `https://github.com/actions/go-versions/releases/download/${version}/go-${version}-${platform}-${arch}.${fileExtension}`
-            : `https://storage.googleapis.com/golang/go${version}.${osSpec}-${arch}.${fileExtension}`;
+            : `https://go.dev/dl/go${version}.${osSpec}-${arch}.${fileExtension}`;
 
         // ... but not in the local cache
         findSpy.mockImplementation(() => '');
@@ -988,5 +1004,105 @@ use .
         );
       }
     );
+  });
+
+  describe('go-version-file-toolchain', () => {
+    const goVersions = ['1.22.0', '1.21rc2', '1.18'];
+    const placeholderVersion = '1.19';
+    const buildGoMod = (
+      goVersion: string,
+      toolchainVersion: string
+    ) => `module example.com/mymodule
+
+go ${goVersion}
+
+toolchain go${toolchainVersion}
+
+require (
+	example.com/othermodule v1.2.3
+	example.com/thismodule v1.2.3
+	example.com/thatmodule v1.2.3
+)
+
+replace example.com/thatmodule => ../thatmodule
+exclude example.com/thismodule v1.3.0
+`;
+
+    const buildGoWork = (
+      goVersion: string,
+      toolchainVersion: string
+    ) => `go 1.19
+
+toolchain go${toolchainVersion}
+
+use .
+
+`;
+
+    goVersions.forEach(version => {
+      [
+        {
+          goVersionfile: 'go.mod',
+          fileContents: Buffer.from(buildGoMod(placeholderVersion, version)),
+          expected_version: version,
+          desc: 'from toolchain directive'
+        },
+        {
+          goVersionfile: 'go.work',
+          fileContents: Buffer.from(buildGoMod(placeholderVersion, version)),
+          expected_version: version,
+          desc: 'from toolchain directive'
+        },
+        {
+          goVersionfile: 'go.mod',
+          fileContents: Buffer.from(buildGoMod(placeholderVersion, version)),
+          gotoolchain_env: 'local',
+          expected_version: placeholderVersion,
+          desc: 'from go directive when GOTOOLCHAIN is local'
+        },
+        {
+          goVersionfile: 'go.work',
+          fileContents: Buffer.from(buildGoMod(placeholderVersion, version)),
+          gotoolchain_env: 'local',
+          expected_version: placeholderVersion,
+          desc: 'from go directive when GOTOOLCHAIN is local'
+        }
+      ].forEach(test => {
+        it(`reads version (${version}) in ${test.goVersionfile} ${test.desc}`, async () => {
+          inputs['go-version-file'] = test.goVersionfile;
+          if (test.gotoolchain_env !== undefined) {
+            process.env[im.GOTOOLCHAIN_ENV_VAR] = test.gotoolchain_env;
+          }
+          existsSpy.mockImplementation(() => true);
+          readFileSpy.mockImplementation(() => Buffer.from(test.fileContents));
+
+          await main.run();
+
+          expect(logSpy).toHaveBeenCalledWith(
+            `Setup go version spec ${test.expected_version}`
+          );
+          expect(logSpy).toHaveBeenCalledWith(
+            `Attempting to download ${test.expected_version}...`
+          );
+          expect(logSpy).toHaveBeenCalledWith(
+            `matching ${test.expected_version}...`
+          );
+        });
+      });
+    });
+  });
+
+  it('exports GOTOOLCHAIN and sets it in current process env', async () => {
+    inputs['go-version'] = '1.21.0';
+    inSpy.mockImplementation(name => inputs[name]);
+
+    const vars: {[key: string]: string} = {};
+    exportVarSpy.mockImplementation((name: string, val: string) => {
+      vars[name] = val;
+    });
+
+    await main.run();
+    expect(vars).toStrictEqual({GOTOOLCHAIN: 'local'});
+    expect(process.env).toHaveProperty('GOTOOLCHAIN', 'local');
   });
 });
