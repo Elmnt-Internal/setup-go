@@ -15,7 +15,6 @@ process.on('uncaughtException', e => {
 // Added early exit to resolve issue with slow post action step:
 // - https://github.com/actions/setup-node/issues/878
 // https://github.com/actions/cache/pull/1217
-
 export async function run(earlyExit?: boolean) {
   try {
     const cacheInput = core.getBooleanInput('cache');

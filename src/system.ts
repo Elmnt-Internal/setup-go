@@ -1,5 +1,4 @@
 import os from 'os';
-import {Architecture} from './types';
 
 export function getPlatform(): string {
   // darwin and linux match already
@@ -16,7 +15,7 @@ export function getPlatform(): string {
   return plat;
 }
 
-export function getArch(arch: Architecture): string {
+export function getArch(arch: string): string {
   // 'arm', 'arm64', 'ia32', 'mips', 'mipsel', 'ppc', 'ppc64', 's390', 's390x', 'x32', and 'x64'.
 
   // wants amd64, 386, arm64, armv61, ppc641e, s390x

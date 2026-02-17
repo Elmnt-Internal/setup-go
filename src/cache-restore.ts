@@ -55,8 +55,8 @@ const findDependencyFile = (packageManager: PackageManagerInfo) => {
   const workspace = process.env.GITHUB_WORKSPACE!;
   const rootContent = fs.readdirSync(workspace);
 
-  const goModFileExists = rootContent.includes(dependencyFile);
-  if (!goModFileExists) {
+  const goSumFileExists = rootContent.includes(dependencyFile);
+  if (!goSumFileExists) {
     throw new Error(
       `Dependencies file is not found in ${workspace}. Supported file pattern: ${dependencyFile}`
     );

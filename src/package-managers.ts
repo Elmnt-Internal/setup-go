@@ -9,7 +9,7 @@ export interface PackageManagerInfo {
 
 export const supportedPackageManagers: SupportedPackageManagers = {
   default: {
-    dependencyFilePattern: 'go.mod',
+    dependencyFilePattern: 'go.sum',
     cacheFolderCommandList: ['go env GOMODCACHE', 'go env GOCACHE']
   }
 };
